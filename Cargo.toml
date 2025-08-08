@@ -7,5 +7,11 @@ edition = "2024"
 minifb = "0.27"
 winit = "0.30.12"
 image = "0.25"
+rapier2d = "0.22"
+nalgebra = "0.33"
+
+[[bin]]
+name = "RocketEngine_Rapier"
+path = "src/main_rapier.rs"
 
 
