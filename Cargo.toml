@@ -13,6 +13,14 @@ categories = ["game-engines", "graphics"]
 name = "rocket_engine"
 path = "src/lib.rs"
 
+[[bin]]
+name = "rocket_engine"
+path = "src/main.rs"
+
+[[bin]]
+name = "editor"
+path = "src/bin/editor.rs"
+
 [dependencies]
 minifb = "0.27"
 winit = "0.30.12"
@@ -22,6 +30,11 @@ nalgebra = "0.33"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ron = "0.8"
+egui = "0.29"
+eframe = "0.29"
+rfd = "0.15"  # For file dialogs
+uuid = { version = "1.0", features = ["v4"] }
+env_logger = "0.11"
 
 
 
