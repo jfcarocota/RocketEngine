@@ -10,8 +10,6 @@ image = "0.25"
 rapier2d = "0.22"
 nalgebra = "0.33"
 
-[[bin]]
-name = "RocketEngine_Rapier"
-path = "src/main_rapier.rs"
+
 
 
