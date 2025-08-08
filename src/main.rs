@@ -1,6 +1,8 @@
 use minifb::{Key, Window, WindowOptions};
 use std::collections::HashMap;
 use std::time::Instant;
+use std::path::Path;
+use image::{DynamicImage, ImageFormat, RgbaImage};
 
 const WIDTH: usize = 800;
 const HEIGHT: usize = 600;
@@ -35,12 +37,151 @@ impl Sprite {
     }
 }
 
+#[derive(Debug, Clone)]
+struct Texture {
+    width: usize,
+    height: usize,
+    data: Vec<u32>, // RGBA pixels
+}
+
+impl Texture {
+    fn new(width: usize, height: usize, data: Vec<u32>) -> Self {
+        Self { width, height, data }
+    }
+
+    fn get_pixel(&self, x: usize, y: usize) -> u32 {
+        if x < self.width && y < self.height {
+            self.data[y * self.width + x]
+        } else {
+            0 // Transparent/black for out of bounds
+        }
+    }
+}
+
+// Sprite Atlas for managing multiple sprites in one texture
+#[derive(Debug, Clone)]
+struct SpriteAtlas {
+    texture: Texture,
+    sprites: HashMap<String, AtlasSprite>,
+}
+
+#[derive(Debug, Clone)]
+struct AtlasSprite {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+}
+
+impl SpriteAtlas {
+    fn new(texture: Texture) -> Self {
+        Self {
+            texture,
+            sprites: HashMap::new(),
+        }
+    }
+
+    fn add_sprite(&mut self, name: String, x: usize, y: usize, width: usize, height: usize) {
+        self.sprites.insert(name, AtlasSprite { x, y, width, height });
+    }
+
+    fn get_sprite(&self, name: &str) -> Option<&AtlasSprite> {
+        self.sprites.get(name)
+    }
+}
+
+// Assets loader
+struct AssetsLoader;
+
+impl AssetsLoader {
+    fn load_png(path: &str) -> Result<Texture, Box<dyn std::error::Error>> {
+        println!("Loading texture: {}", path);
+        
+        let img = image::open(path)?;
+        let rgba_img = img.to_rgba8();
+        let (width, height) = rgba_img.dimensions();
+        
+        // Convert RGBA8 to u32 format (ARGB)
+        let mut pixels = Vec::with_capacity((width * height) as usize);
+        for pixel in rgba_img.pixels() {
+            let r = pixel[0] as u32;
+            let g = pixel[1] as u32;
+            let b = pixel[2] as u32;
+            let a = pixel[3] as u32;
+            
+            // Convert to ARGB format for minifb
+            let argb = (a << 24) | (r << 16) | (g << 8) | b;
+            pixels.push(argb);
+        }
+        
+        Ok(Texture::new(width as usize, height as usize, pixels))
+    }
+
+    fn create_sample_sprites() -> SpriteAtlas {
+        // Create a simple 64x64 atlas with colored squares for testing
+        let mut atlas_data = vec![0; 64 * 64];
+        
+        // Red sprite (0,0) 16x16
+        for y in 0..16 {
+            for x in 0..16 {
+                atlas_data[y * 64 + x] = 0xFFFF0000; // Red
+            }
+        }
+        
+        // Green sprite (16,0) 16x16
+        for y in 0..16 {
+            for x in 16..32 {
+                atlas_data[y * 64 + x] = 0xFF00FF00; // Green
+            }
+        }
+        
+        // Blue sprite (32,0) 16x16
+        for y in 0..16 {
+            for x in 32..48 {
+                atlas_data[y * 64 + x] = 0xFF0000FF; // Blue
+            }
+        }
+        
+        // Yellow sprite (0,16) 16x16
+        for y in 16..32 {
+            for x in 0..16 {
+                atlas_data[y * 64 + x] = 0xFFFFFF00; // Yellow
+            }
+        }
+        
+        let texture = Texture::new(64, 64, atlas_data);
+        let mut atlas = SpriteAtlas::new(texture);
+        
+        atlas.add_sprite("player".to_string(), 0, 0, 16, 16);
+        atlas.add_sprite("enemy1".to_string(), 16, 0, 16, 16);
+        atlas.add_sprite("enemy2".to_string(), 32, 0, 16, 16);
+        atlas.add_sprite("powerup".to_string(), 0, 16, 16, 16);
+        
+        atlas
+    }
+}
+
+// Component that uses texture atlas sprites
+#[derive(Debug, Clone)]
+struct TextureSprite {
+    atlas_name: String,   // Which sprite in the atlas to use
+    scale: f32,          // Scale factor (1.0 = original size)
+}
+
+impl TextureSprite {
+    fn new(atlas_name: String, scale: f32) -> Self {
+        Self { atlas_name, scale }
+    }
+}
+
 // World contains all components in HashMaps
 struct World {
     next_entity_id: Entity,
     positions: HashMap<Entity, Position>,
     velocities: HashMap<Entity, Velocity>,
     sprites: HashMap<Entity, Sprite>,
+    texture_sprites: HashMap<Entity, TextureSprite>,
+    sprite_atlas: Option<SpriteAtlas>,
 }
 
 impl World {
@@ -50,7 +191,13 @@ impl World {
             positions: HashMap::new(),
             velocities: HashMap::new(),
             sprites: HashMap::new(),
+            texture_sprites: HashMap::new(),
+            sprite_atlas: None,
         }
+    }
+
+    fn set_sprite_atlas(&mut self, atlas: SpriteAtlas) {
+        self.sprite_atlas = Some(atlas);
     }
 
     fn create_entity(&mut self) -> Entity {
@@ -71,6 +218,10 @@ impl World {
         self.sprites.insert(entity, sprite);
     }
 
+    fn add_texture_sprite(&mut self, entity: Entity, texture_sprite: TextureSprite) {
+        self.texture_sprites.insert(entity, texture_sprite);
+    }
+
     fn get_position(&self, entity: Entity) -> Option<&Position> {
         self.positions.get(&entity)
     }
@@ -89,6 +240,10 @@ impl World {
 
     fn get_sprite(&self, entity: Entity) -> Option<&Sprite> {
         self.sprites.get(&entity)
+    }
+
+    fn get_texture_sprite(&self, entity: Entity) -> Option<&TextureSprite> {
+        self.texture_sprites.get(&entity)
     }
 }
 
@@ -164,9 +319,22 @@ impl System for PhysicsSystem {
         for entity in entities_with_velocity {
             // First get the velocity and sprite size (copy them since they're Copy)
             if let Some(velocity) = world.get_velocity(entity).copied() {
-                let sprite_size = world.get_sprite(entity)
-                    .map(|s| s.size)
-                    .unwrap_or(20); // Default size if no sprite
+                // Get size from either regular sprite or texture sprite
+                let sprite_size = if let Some(sprite) = world.get_sprite(entity) {
+                    sprite.size
+                } else if let Some(texture_sprite) = world.get_texture_sprite(entity) {
+                    if let Some(atlas) = &world.sprite_atlas {
+                        if let Some(atlas_sprite) = atlas.get_sprite(&texture_sprite.atlas_name) {
+                            ((atlas_sprite.width as f32 * texture_sprite.scale) as usize).max(1)
+                        } else {
+                            20 // Default if sprite not found in atlas
+                        }
+                    } else {
+                        20 // Default if no atlas
+                    }
+                } else {
+                    20 // Default size if no sprite component
+                };
 
                 // Now we can get a mutable reference to position
                 if let Some(position) = world.get_position_mut(entity) {
@@ -226,9 +394,14 @@ impl RenderSystem {
             *pixel = 0;
         }
 
-        // Render all entities with positions and sprites
+        // Render all entities with positions
         for (entity, position) in &world.positions {
-            if let Some(sprite) = world.get_sprite(*entity) {
+            // Check for texture sprite first, then regular sprite
+            if let Some(texture_sprite) = world.get_texture_sprite(*entity) {
+                if let Some(atlas) = &world.sprite_atlas {
+                    Self::draw_texture_sprite(buffer, position.x, position.y, texture_sprite, atlas);
+                }
+            } else if let Some(sprite) = world.get_sprite(*entity) {
                 Self::draw_sprite(buffer, position.x, position.y, sprite);
             } else {
                 // Fallback: draw a default red square if no sprite
@@ -251,11 +424,43 @@ impl RenderSystem {
         }
     }
 
+    fn draw_texture_sprite(buffer: &mut Vec<u32>, x: f32, y: f32, texture_sprite: &TextureSprite, atlas: &SpriteAtlas) {
+        if let Some(atlas_sprite) = atlas.get_sprite(&texture_sprite.atlas_name) {
+            let dest_x = x as i32;
+            let dest_y = y as i32;
+            let scaled_width = (atlas_sprite.width as f32 * texture_sprite.scale) as i32;
+            let scaled_height = (atlas_sprite.height as f32 * texture_sprite.scale) as i32;
+
+            for dy in 0..scaled_height {
+                for dx in 0..scaled_width {
+                    let screen_x = dest_x + dx;
+                    let screen_y = dest_y + dy;
+
+                    if screen_x >= 0 && screen_y >= 0 && 
+                       (screen_x as usize) < WIDTH && (screen_y as usize) < HEIGHT {
+                        
+                        // Map back to source texture coordinates
+                        let src_x = atlas_sprite.x + (dx as f32 / texture_sprite.scale) as usize;
+                        let src_y = atlas_sprite.y + (dy as f32 / texture_sprite.scale) as usize;
+                        
+                        let pixel = atlas.texture.get_pixel(src_x, src_y);
+                        
+                        // Only draw non-transparent pixels
+                        if (pixel >> 24) > 0 {
+                            let index = (screen_y as usize) * WIDTH + (screen_x as usize);
+                            buffer[index] = pixel;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn draw_default_square(buffer: &mut Vec<u32>, x: f32, y: f32) {
         let sprite_x = x as usize;
         let sprite_y = y as usize;
         let default_size = 20;
-        let default_color = 0xFF0000; // Red
+        let default_color = 0xFFFF0000; // Red
 
         for y in sprite_y..sprite_y + default_size {
             for x in sprite_x..sprite_x + default_size {
@@ -285,22 +490,47 @@ fn main() {
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let mut world = World::new();
 
-    // Create the player entity with sprite
+    // Load sprite atlas (try to load from file, fall back to sample sprites)
+    let atlas = match AssetsLoader::load_png("assets/sprites/atlas.png") {
+        Ok(texture) => {
+            println!("Loaded atlas from file!");
+            let mut atlas = SpriteAtlas::new(texture);
+            // You would define your sprite positions here for a real atlas
+            atlas.add_sprite("player".to_string(), 0, 0, 32, 32);
+            atlas.add_sprite("enemy1".to_string(), 32, 0, 32, 32);
+            atlas.add_sprite("enemy2".to_string(), 64, 0, 32, 32);
+            atlas
+        },
+        Err(_) => {
+            println!("Could not load atlas file, using sample sprites");
+            AssetsLoader::create_sample_sprites()
+        }
+    };
+    
+    world.set_sprite_atlas(atlas);
+
+    // Create the player entity with texture sprite
     let player = world.create_entity();
     world.add_position(player, Position { x: 100.0, y: 100.0 });
     world.add_velocity(player, Velocity { x: 0.0, y: 0.0 });
-    world.add_sprite(player, Sprite::new(0xFF0000, 25)); // Red, 25x25 pixels
+    world.add_texture_sprite(player, TextureSprite::new("player".to_string(), 2.0)); // 2x scale
 
-    // Create additional entities for demonstration
+    // Create additional entities for demonstration with texture sprites
     let enemy1 = world.create_entity();
     world.add_position(enemy1, Position { x: 300.0, y: 200.0 });
     world.add_velocity(enemy1, Velocity { x: 50.0, y: 30.0 }); // Slow movement
-    world.add_sprite(enemy1, Sprite::new(0x00FF00, 15)); // Green, 15x15 pixels
+    world.add_texture_sprite(enemy1, TextureSprite::new("enemy1".to_string(), 1.5)); // 1.5x scale
 
     let enemy2 = world.create_entity();
     world.add_position(enemy2, Position { x: 500.0, y: 400.0 });
     world.add_velocity(enemy2, Velocity { x: -75.0, y: -45.0 }); // Different movement
-    world.add_sprite(enemy2, Sprite::new(0x0000FF, 30)); // Blue, 30x30 pixels
+    world.add_texture_sprite(enemy2, TextureSprite::new("enemy2".to_string(), 1.0)); // Normal scale
+
+    // Create a powerup entity with texture sprite
+    let powerup = world.create_entity();
+    world.add_position(powerup, Position { x: 400.0, y: 300.0 });
+    world.add_velocity(powerup, Velocity { x: 25.0, y: -25.0 }); // Slow diagonal movement
+    world.add_texture_sprite(powerup, TextureSprite::new("powerup".to_string(), 1.0)); // Normal scale
 
     // Setup scheduler with update systems
     let mut scheduler = Scheduler::new();
@@ -310,8 +540,10 @@ fn main() {
     // Timing for delta time calculation
     let mut last_time = Instant::now();
 
-    println!("Game started! Use arrow keys to move the red square.");
-    println!("Watch the green and blue squares move automatically!");
+    println!("Game started with Texture Assets System!");
+    println!("Use arrow keys to move the player sprite.");
+    println!("Watch the enemy sprites and powerup move automatically!");
+    println!("Sprites are loaded from a texture atlas!");
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let current_time = Instant::now();
