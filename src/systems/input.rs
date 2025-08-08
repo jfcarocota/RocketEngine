@@ -1,7 +1,7 @@
 use crate::components::Entity;
 use crate::world::World;
 use crate::systems::System;
-use minifb::{Key, Window};
+use minifb::Window;
 
 /// Input System - handles keyboard input
 pub struct InputSystem {

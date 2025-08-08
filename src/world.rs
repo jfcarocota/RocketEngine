@@ -36,6 +36,10 @@ impl World {
     pub fn new() -> Self {
         let mut integration_parameters = IntegrationParameters::default();
         integration_parameters.dt = 1.0 / 60.0; // 60 FPS
+        
+        // Configure CCD parameters for better fast-object collision handling
+        integration_parameters.max_ccd_substeps = 4; // More substeps for better CCD
+        integration_parameters.min_ccd_dt = 1.0 / 240.0; // Smaller minimum CCD timestep for accuracy
 
         Self {
             next_entity_id: 0,
@@ -97,17 +101,36 @@ impl World {
 
     /// Create a physics body for this entity
     pub fn add_physics_body(&mut self, entity: Entity, position: Position, size: f32, body_type: RigidBodyType) {
-        // Create Rapier rigid body
+        // Get initial velocity from ECS if it exists
+        let initial_velocity = self.velocities.get(&entity)
+            .map(|v| Vector2::new(v.x, v.y))
+            .unwrap_or_else(Vector2::zeros);
+
+        // Create Rapier rigid body with better collision settings and CCD
         let rigid_body = RigidBodyBuilder::new(body_type)
             .translation(Vector2::new(position.x, position.y))
+            .linvel(initial_velocity)
+            .linear_damping(0.1)  // Slight damping to prevent infinite bouncing
+            .angular_damping(0.1) // Prevent excessive spinning
+            .can_sleep(false)     // Keep bodies active for better collision response
+            .ccd_enabled(true)    // Enable Continuous Collision Detection
             .build();
 
         let body_handle = self.physics_world.insert(rigid_body);
 
-        // Create collider (using a square shape)
+        // Calculate appropriate CCD thickness based on object size and potential velocity
+        // Note: In Rapier2D, CCD thickness is automatically calculated based on collider shape
+        // The thickness calculation here serves as documentation for the expected scale
+        let _ccd_thickness = (size / 4.0).max(2.0); // At least 2.0, scaled with object size
+        
+        // Create collider with better collision response settings
+        // Note: CCD is enabled at the rigid body level, not collider level in Rapier2D
         let collider = ColliderBuilder::cuboid(size / 2.0, size / 2.0)
-            .restitution(0.8) // Bounciness
-            .friction(0.3)    // Friction
+            .restitution(0.9)     // High bounciness for visible collisions
+            .friction(0.2)        // Low friction for smooth movement
+            .density(1.0)         // Consistent mass
+            .restitution_combine_rule(CoefficientCombineRule::Max) // Use max restitution
+            .friction_combine_rule(CoefficientCombineRule::Average) // Average friction
             .build();
 
         self.collider_set.insert_with_parent(collider, body_handle, &mut self.physics_world);
@@ -177,6 +200,7 @@ impl World {
 
     /// Step the physics simulation
     pub fn step_physics(&mut self) {
+        // Step the physics world with better collision handling
         self.physics_pipeline.step(
             &Vector2::new(0.0, 0.0), // No gravity - space-like physics
             &self.integration_parameters,
@@ -193,8 +217,92 @@ impl World {
             &self.event_handler,
         );
 
+        // Check for collisions and log them
+        self.check_collisions();
+
         // Sync physics positions back to ECS
         self.sync_positions_from_physics();
+        
+        // Apply boundary constraints to keep entities on screen
+        self.apply_boundary_constraints();
+    }
+
+    /// Check for active collisions and log them
+    fn check_collisions(&self) {
+        // Check contact pairs for active collisions
+        for contact_pair in self.narrow_phase.contact_pairs() {
+            if contact_pair.has_any_active_contact {
+                // Get the colliders involved
+                let collider1 = contact_pair.collider1;
+                let collider2 = contact_pair.collider2;
+                
+                // Find the entities associated with these colliders
+                if let (Some(body1), Some(body2)) = (
+                    self.collider_set.get(collider1).and_then(|c| c.parent()),
+                    self.collider_set.get(collider2).and_then(|c| c.parent())
+                ) {
+                    if let (Some(&entity1), Some(&entity2)) = (
+                        self.body_to_entity.get(&body1),
+                        self.body_to_entity.get(&body2)
+                    ) {
+                        // Get positions for logging
+                        if let (Some(pos1), Some(pos2)) = (
+                            self.positions.get(&entity1),
+                            self.positions.get(&entity2)
+                        ) {
+                            println!("Collision! Entity {} at ({:.1}, {:.1}) <-> Entity {} at ({:.1}, {:.1})",
+                                entity1, pos1.x, pos1.y, entity2, pos2.x, pos2.y);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Keep entities within screen bounds
+    fn apply_boundary_constraints(&mut self) {
+        const SCREEN_WIDTH: f32 = 800.0;
+        const SCREEN_HEIGHT: f32 = 600.0;
+        const MARGIN: f32 = 16.0; // Half of typical sprite size
+
+        for (&_entity, &body_handle) in &self.entity_to_body {
+            if let Some(body) = self.physics_world.get_mut(body_handle) {
+                let mut translation = *body.translation();
+                let mut velocity = *body.linvel();
+                let mut changed = false;
+
+                // Left boundary
+                if translation.x < MARGIN {
+                    translation.x = MARGIN;
+                    velocity.x = velocity.x.abs(); // Bounce right
+                    changed = true;
+                }
+                // Right boundary  
+                else if translation.x > SCREEN_WIDTH - MARGIN {
+                    translation.x = SCREEN_WIDTH - MARGIN;
+                    velocity.x = -velocity.x.abs(); // Bounce left
+                    changed = true;
+                }
+
+                // Top boundary
+                if translation.y < MARGIN {
+                    translation.y = MARGIN;
+                    velocity.y = velocity.y.abs(); // Bounce down
+                    changed = true;
+                }
+                // Bottom boundary
+                else if translation.y > SCREEN_HEIGHT - MARGIN {
+                    translation.y = SCREEN_HEIGHT - MARGIN;
+                    velocity.y = -velocity.y.abs(); // Bounce up
+                    changed = true;
+                }
+
+                if changed {
+                    body.set_translation(translation, true);
+                    body.set_linvel(velocity, true);
+                }
+            }
+        }
     }
 
     /// Get entity count
