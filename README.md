@@ -9,6 +9,8 @@ A modular 2D game engine built with Rust and powered by Rapier2D physics.
 - **🎨 Sprite System**: Basic sprites and texture atlas support  
 - **📦 Asset Loading**: PNG loading and sprite atlas management
 - **🔧 Modular Design**: Well-organized, reusable components
+- **🎨 Visual Editor**: GUI-based level editor with drag & drop
+- **📋 Scene System**: RON/JSON scene loading and saving
 
 ## 🏗️ Architecture
 
@@ -75,20 +77,33 @@ fn main() {
 }
 ```
 
-### Running the Demo
+### Running the Applications
 
 ```bash
-# Run the included demo
-cargo run
+# Run the visual editor (recommended)
+cargo run --bin editor
 
-# Build the library
+# Run the traditional demo
+cargo run --bin rocket_engine
+
+# Build everything
 cargo build
 ```
 
-## 🎮 Demo Controls
+## 🎮 Controls
 
+### Traditional Demo
 - **Arrow Keys**: Move the player sprite
 - **Escape**: Exit the game
+
+### Visual Editor
+- **Drag & Drop**: Drag assets from panel to grid
+- **Click**: Select entities
+- **Play Button**: Start/stop simulation
+- **File Menu**: Save/load scenes
+- **View Menu**: Toggle panels and grid
+
+See [EDITOR_README.md](EDITOR_README.md) for complete editor documentation.
 
 ## 🏗️ Project Structure
 
@@ -109,21 +124,44 @@ RocketEngine/
 │   │   ├── input.rs        # Input handling
 │   │   ├── physics.rs      # Physics simulation
 │   │   └── render.rs       # Rendering
+│   ├── bin/                # Binary executables
+│   │   └── editor.rs       # Visual editor
 │   ├── world.rs            # ECS World + Physics
+│   ├── scene.rs            # Scene loading/saving
+│   ├── editor.rs           # Editor implementation
 │   ├── lib.rs              # Library interface
-│   └── main.rs             # Demo executable
+│   └── main.rs             # Traditional demo
+├── scenes/                 # Scene files
+│   ├── README.md          # Scene documentation
+│   ├── example_scene.ron  # Example RON scene
+│   └── example_scene.json # Example JSON scene
 ├── assets/sprites/         # Game assets
 │   └── atlas.png          # Sprite atlas
 ├── Cargo.toml             # Dependencies
-└── README.md              # This file
+├── README.md              # This file
+├── EDITOR_README.md       # Editor documentation
+└── PR_SCENE_SYSTEM.md     # Scene system PR description
 ```
 
 ## 🔧 Dependencies
 
+### Core Engine
 - **`rapier2d`**: 2D physics simulation
 - **`nalgebra`**: Linear algebra for physics
 - **`minifb`**: Cross-platform windowing 
 - **`image`**: PNG loading and processing
+
+### Scene System
+- **`serde`**: Serialization framework
+- **`serde_json`**: JSON support
+- **`ron`**: Rust Object Notation
+
+### Visual Editor
+- **`egui`**: Immediate mode GUI
+- **`eframe`**: Application framework
+- **`rfd`**: File dialogs
+- **`uuid`**: Unique identifiers
+- **`env_logger`**: Logging
 
 ## 🎯 Physics Features
 
