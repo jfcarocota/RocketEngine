@@ -1,8 +1,7 @@
 use minifb::{Key, Window, WindowOptions};
 use std::collections::HashMap;
 use std::time::Instant;
-use std::path::Path;
-use image::{DynamicImage, ImageFormat, RgbaImage};
+use image::RgbaImage;
 
 const WIDTH: usize = 800;
 const HEIGHT: usize = 600;
@@ -174,6 +173,56 @@ impl TextureSprite {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Collider {
+    width: f32,
+    height: f32,
+    solid: bool,         // If true, entities bounce off; if false, just trigger events
+}
+
+impl Collider {
+    fn new(width: f32, height: f32, solid: bool) -> Self {
+        Self { width, height, solid }
+    }
+
+    fn get_aabb(&self, position: &Position) -> AABB {
+        AABB {
+            min_x: position.x,
+            min_y: position.y,
+            max_x: position.x + self.width,
+            max_y: position.y + self.height,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AABB {
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+}
+
+impl AABB {
+    fn intersects(&self, other: &AABB) -> bool {
+        self.min_x < other.max_x &&
+        self.max_x > other.min_x &&
+        self.min_y < other.max_y &&
+        self.max_y > other.min_y
+    }
+
+    fn get_overlap(&self, other: &AABB) -> Option<(f32, f32)> {
+        if !self.intersects(other) {
+            return None;
+        }
+
+        let overlap_x = (self.max_x.min(other.max_x) - self.min_x.max(other.min_x)).abs();
+        let overlap_y = (self.max_y.min(other.max_y) - self.min_y.max(other.min_y)).abs();
+        
+        Some((overlap_x, overlap_y))
+    }
+}
+
 // World contains all components in HashMaps
 struct World {
     next_entity_id: Entity,
@@ -181,6 +230,7 @@ struct World {
     velocities: HashMap<Entity, Velocity>,
     sprites: HashMap<Entity, Sprite>,
     texture_sprites: HashMap<Entity, TextureSprite>,
+    colliders: HashMap<Entity, Collider>,
     sprite_atlas: Option<SpriteAtlas>,
 }
 
@@ -192,6 +242,7 @@ impl World {
             velocities: HashMap::new(),
             sprites: HashMap::new(),
             texture_sprites: HashMap::new(),
+            colliders: HashMap::new(),
             sprite_atlas: None,
         }
     }
@@ -222,6 +273,10 @@ impl World {
         self.texture_sprites.insert(entity, texture_sprite);
     }
 
+    fn add_collider(&mut self, entity: Entity, collider: Collider) {
+        self.colliders.insert(entity, collider);
+    }
+
     fn get_position(&self, entity: Entity) -> Option<&Position> {
         self.positions.get(&entity)
     }
@@ -244,6 +299,10 @@ impl World {
 
     fn get_texture_sprite(&self, entity: Entity) -> Option<&TextureSprite> {
         self.texture_sprites.get(&entity)
+    }
+
+    fn get_collider(&self, entity: Entity) -> Option<&Collider> {
+        self.colliders.get(&entity)
     }
 }
 
@@ -357,6 +416,142 @@ impl System for PhysicsSystem {
 
     fn name(&self) -> &'static str {
         "PhysicsSystem"
+    }
+}
+
+// Collision System - handles entity collisions
+struct CollisionSystem;
+
+impl System for CollisionSystem {
+    fn update(&mut self, world: &mut World, _dt: f32) {
+        // Get all entities with both position and collider
+        let entities_with_colliders: Vec<Entity> = world.colliders.keys().cloned().collect();
+        
+        // Check all pairs of colliding entities
+        for i in 0..entities_with_colliders.len() {
+            for j in (i + 1)..entities_with_colliders.len() {
+                let entity_a = entities_with_colliders[i];
+                let entity_b = entities_with_colliders[j];
+                
+                // Get positions and colliders for both entities
+                if let (Some(pos_a), Some(collider_a), Some(pos_b), Some(collider_b)) = (
+                    world.get_position(entity_a),
+                    world.get_collider(entity_a),
+                    world.get_position(entity_b),
+                    world.get_collider(entity_b),
+                ) {
+                    let aabb_a = collider_a.get_aabb(pos_a);
+                    let aabb_b = collider_b.get_aabb(pos_b);
+                    
+                    // Check for collision
+                    if aabb_a.intersects(&aabb_b) {
+                        self.handle_collision(world, entity_a, entity_b, &aabb_a, &aabb_b);
+                    }
+                }
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "CollisionSystem"
+    }
+}
+
+impl CollisionSystem {
+    fn handle_collision(&self, world: &mut World, entity_a: Entity, entity_b: Entity, aabb_a: &AABB, aabb_b: &AABB) {
+        // Get collision overlap
+        if let Some((overlap_x, overlap_y)) = aabb_a.get_overlap(aabb_b) {
+            // Determine collision direction (smallest overlap axis)
+            let horizontal_collision = overlap_x < overlap_y;
+            
+            // Get collider info to determine if collision should be solid
+            let collider_a = world.get_collider(entity_a);
+            let collider_b = world.get_collider(entity_b);
+            
+            let solid_collision = collider_a.map(|c| c.solid).unwrap_or(false) ||
+                                 collider_b.map(|c| c.solid).unwrap_or(false);
+            
+            if solid_collision {
+                self.separate_entities(world, entity_a, entity_b, horizontal_collision, overlap_x, overlap_y);
+            }
+            
+            // Print collision info
+            println!("Collision! Entity {} <-> Entity {} (overlap: {:.1}x{:.1})", 
+                    entity_a, entity_b, overlap_x, overlap_y);
+        }
+    }
+    
+    fn separate_entities(&self, world: &mut World, entity_a: Entity, entity_b: Entity, 
+                        horizontal_collision: bool, overlap_x: f32, overlap_y: f32) {
+        // Get velocities to determine which entity should move
+        let vel_a = world.get_velocity(entity_a).copied();
+        let vel_b = world.get_velocity(entity_b).copied();
+        
+        // Separate entities by moving them apart
+        let separation = if horizontal_collision { overlap_x } else { overlap_y };
+        let half_sep = separation / 2.0;
+        
+        // Move entities apart based on their velocities
+        // We need to handle the borrowing carefully to avoid double mutable borrow
+        let pos_a = world.positions.get(&entity_a).copied();
+        let pos_b = world.positions.get(&entity_b).copied();
+        
+        if let (Some(mut pos_a), Some(mut pos_b)) = (pos_a, pos_b) {
+            if horizontal_collision {
+                // Horizontal separation
+                if let Some(vel_a) = vel_a {
+                    if vel_a.x > 0.0 {
+                        pos_a.x -= half_sep; // Entity A was moving right, push it left
+                    } else if vel_a.x < 0.0 {
+                        pos_a.x += half_sep; // Entity A was moving left, push it right
+                    }
+                }
+                if let Some(vel_b) = vel_b {
+                    if vel_b.x > 0.0 {
+                        pos_b.x -= half_sep; // Entity B was moving right, push it left
+                    } else if vel_b.x < 0.0 {
+                        pos_b.x += half_sep; // Entity B was moving left, push it right
+                    }
+                }
+            } else {
+                // Vertical separation
+                if let Some(vel_a) = vel_a {
+                    if vel_a.y > 0.0 {
+                        pos_a.y -= half_sep; // Entity A was moving down, push it up
+                    } else if vel_a.y < 0.0 {
+                        pos_a.y += half_sep; // Entity A was moving up, push it down
+                    }
+                }
+                if let Some(vel_b) = vel_b {
+                    if vel_b.y > 0.0 {
+                        pos_b.y -= half_sep; // Entity B was moving down, push it up
+                    } else if vel_b.y < 0.0 {
+                        pos_b.y += half_sep; // Entity B was moving up, push it down
+                    }
+                }
+            }
+            
+            // Update positions back to the world
+            world.positions.insert(entity_a, pos_a);
+            world.positions.insert(entity_b, pos_b);
+        }
+        
+        // Bounce velocities for solid collisions
+        if horizontal_collision {
+            if let Some(vel_a) = world.velocities.get_mut(&entity_a) {
+                vel_a.x *= -0.8; // Reverse and dampen X velocity
+            }
+            if let Some(vel_b) = world.velocities.get_mut(&entity_b) {
+                vel_b.x *= -0.8; // Reverse and dampen X velocity
+            }
+        } else {
+            if let Some(vel_a) = world.velocities.get_mut(&entity_a) {
+                vel_a.y *= -0.8; // Reverse and dampen Y velocity
+            }
+            if let Some(vel_b) = world.velocities.get_mut(&entity_b) {
+                vel_b.y *= -0.8; // Reverse and dampen Y velocity
+            }
+        }
     }
 }
 
@@ -509,41 +704,47 @@ fn main() {
     
     world.set_sprite_atlas(atlas);
 
-    // Create the player entity with texture sprite
+    // Create the player entity with texture sprite and collider
     let player = world.create_entity();
     world.add_position(player, Position { x: 100.0, y: 100.0 });
     world.add_velocity(player, Velocity { x: 0.0, y: 0.0 });
     world.add_texture_sprite(player, TextureSprite::new("player".to_string(), 2.0)); // 2x scale
+    world.add_collider(player, Collider::new(32.0, 32.0, true)); // Solid collider
 
-    // Create additional entities for demonstration with texture sprites
+    // Create additional entities for demonstration with texture sprites and colliders
     let enemy1 = world.create_entity();
     world.add_position(enemy1, Position { x: 300.0, y: 200.0 });
     world.add_velocity(enemy1, Velocity { x: 50.0, y: 30.0 }); // Slow movement
     world.add_texture_sprite(enemy1, TextureSprite::new("enemy1".to_string(), 1.5)); // 1.5x scale
+    world.add_collider(enemy1, Collider::new(24.0, 24.0, true)); // Solid collider
 
     let enemy2 = world.create_entity();
     world.add_position(enemy2, Position { x: 500.0, y: 400.0 });
     world.add_velocity(enemy2, Velocity { x: -75.0, y: -45.0 }); // Different movement
     world.add_texture_sprite(enemy2, TextureSprite::new("enemy2".to_string(), 1.0)); // Normal scale
+    world.add_collider(enemy2, Collider::new(16.0, 16.0, true)); // Solid collider
 
-    // Create a powerup entity with texture sprite
+    // Create a powerup entity with texture sprite and non-solid collider
     let powerup = world.create_entity();
     world.add_position(powerup, Position { x: 400.0, y: 300.0 });
     world.add_velocity(powerup, Velocity { x: 25.0, y: -25.0 }); // Slow diagonal movement
     world.add_texture_sprite(powerup, TextureSprite::new("powerup".to_string(), 1.0)); // Normal scale
+    world.add_collider(powerup, Collider::new(16.0, 16.0, false)); // Non-solid trigger collider
 
     // Setup scheduler with update systems
     let mut scheduler = Scheduler::new();
     let mut input_system = InputSystem::new(player);
     scheduler.add_system(Box::new(PhysicsSystem));
+    scheduler.add_system(Box::new(CollisionSystem));
 
     // Timing for delta time calculation
     let mut last_time = Instant::now();
 
-    println!("Game started with Texture Assets System!");
+    println!("Game started with Texture Assets + AABB Collision System!");
     println!("Use arrow keys to move the player sprite.");
-    println!("Watch the enemy sprites and powerup move automatically!");
-    println!("Sprites are loaded from a texture atlas!");
+    println!("Watch entities bounce off each other when they collide!");
+    println!("Player (red): solid collider, Enemies (green/blue): solid colliders");
+    println!("Powerup (yellow): trigger collider (non-solid)");
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let current_time = Instant::now();
