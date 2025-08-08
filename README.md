@@ -1,110 +1,171 @@
 # RocketEngine 🚀
 
-A modern, high-performance 2D game engine built in Rust with Entity Component System (ECS) architecture.
+A modular 2D game engine built with Rust and powered by Rapier2D physics.
 
-## Features
+## ✨ Features
 
-### 🏗️ **Entity Component System (ECS)**
-- Clean separation of data (Components) and logic (Systems)
-- Type-safe Entity management with unique IDs
-- Flexible component composition
+- **🏗️ ECS Architecture**: Clean Entity-Component-System design
+- **⚡ Rapier2D Physics**: Professional-grade physics simulation
+- **🎨 Sprite System**: Basic sprites and texture atlas support  
+- **📦 Asset Loading**: PNG loading and sprite atlas management
+- **🔧 Modular Design**: Well-organized, reusable components
 
-### 📅 **System Scheduler**
-- Automated system execution with proper ordering
-- Delta-time based physics updates
-- Separation between update systems and render system
+## 🏗️ Architecture
 
-### 🎨 **Advanced Asset Management**
-- PNG texture loading with `image` crate
-- Sprite atlas system for efficient texture memory usage
-- Texture component with scaling support
-- Fallback to procedural sprites when assets unavailable
+### Components (`src/components/`)
+- **`Position`**: 2D position with utility methods
+- **`Velocity`**: 2D velocity with magnitude/normalization 
+- **`Sprite`**: Basic colored sprites with helper constructors
+- **`TextureSprite`**: Atlas-based sprites with scaling
+- **`Texture`**: Raw texture data with pixel manipulation
+- **`SpriteAtlas`**: Multi-sprite texture atlas management
+- **`AssetsLoader`**: PNG loading and sample atlas creation
 
-### 🎮 **Game Components**
-- **Position**: 2D coordinates (x, y)
-- **Velocity**: Movement speed per second
-- **Sprite**: Basic colored squares with customizable size
-- **TextureSprite**: Atlas-based sprites with scaling
+### Systems (`src/systems/`)
+- **`InputSystem`**: Keyboard input handling
+- **`PhysicsSystem`**: Rapier2D physics simulation 
+- **`RenderSystem`**: Sprite and texture rendering
+- **`Scheduler`**: System execution management
 
-### ⚙️ **Systems**
-1. **InputSystem**: Keyboard input handling (Arrow keys)
-2. **PhysicsSystem**: Position updates with velocity and boundary collision
-3. **RenderSystem**: Efficient sprite rendering with texture support
+### World (`src/world.rs`)
+- **ECS Management**: Entity creation and component storage
+- **Physics Integration**: Rapier2D world with ECS synchronization
+- **Body Mapping**: Entity ↔ RigidBody relationships
 
-## Quick Start
+## 🚀 Quick Start
 
-```bash
-# Clone the repository
-git clone https://github.com/jfcarocota/RocketEngine.git
-cd RocketEngine
+### As a Library
 
-# Run the engine
-cargo run
+Add to your `Cargo.toml`:
+```toml
+[dependencies]
+rocket_engine = { path = "path/to/RocketEngine" }
 ```
 
-## Controls
+Basic usage:
+```rust
+use rocket_engine::*;
+
+fn main() {
+    // Create world
+    let mut world = World::new();
+    
+    // Create entity
+    let player = world.create_entity();
+    world.add_position(player, Position::new(100.0, 100.0));
+    world.add_velocity(player, Velocity::new(50.0, 0.0));
+    
+    // Add physics body
+    world.add_physics_body(
+        player, 
+        Position::new(100.0, 100.0), 
+        32.0, 
+        rapier2d::prelude::RigidBodyType::Dynamic
+    );
+    
+    // Set up systems
+    let mut scheduler = Scheduler::new();
+    scheduler.add_system(Box::new(PhysicsSystem::new()));
+    
+    // Game loop
+    loop {
+        scheduler.update(&mut world, 0.016); // 60 FPS
+        // ... rendering
+    }
+}
+```
+
+### Running the Demo
+
+```bash
+# Run the included demo
+cargo run
+
+# Build the library
+cargo build
+```
+
+## 🎮 Demo Controls
 
 - **Arrow Keys**: Move the player sprite
 - **Escape**: Exit the game
 
-## Asset Loading
+## 🏗️ Project Structure
 
-The engine attempts to load textures from `assets/sprites/atlas.png`. If the file is not found, it falls back to procedurally generated sample sprites.
+```
+RocketEngine/
+├── src/
+│   ├── components/          # ECS Components
+│   │   ├── mod.rs          # Module exports
+│   │   ├── position.rs     # Position component
+│   │   ├── velocity.rs     # Velocity component  
+│   │   ├── sprite.rs       # Basic sprite component
+│   │   ├── texture_sprite.rs # Atlas sprite component
+│   │   ├── texture.rs      # Texture & atlas types
+│   │   └── atlas.rs        # Asset loading
+│   ├── systems/            # ECS Systems
+│   │   ├── mod.rs          # Module exports
+│   │   ├── scheduler.rs    # System scheduler
+│   │   ├── input.rs        # Input handling
+│   │   ├── physics.rs      # Physics simulation
+│   │   └── render.rs       # Rendering
+│   ├── world.rs            # ECS World + Physics
+│   ├── lib.rs              # Library interface
+│   └── main.rs             # Demo executable
+├── assets/sprites/         # Game assets
+│   └── atlas.png          # Sprite atlas
+├── Cargo.toml             # Dependencies
+└── README.md              # This file
+```
 
-### Creating Your Own Atlas
+## 🔧 Dependencies
 
-1. Create `assets/sprites/` directory
-2. Add your `atlas.png` file (64x64 minimum recommended)
-3. Update sprite definitions in `main.rs`:
+- **`rapier2d`**: 2D physics simulation
+- **`nalgebra`**: Linear algebra for physics
+- **`minifb`**: Cross-platform windowing 
+- **`image`**: PNG loading and processing
+
+## 🎯 Physics Features
+
+- ✅ **Collision Detection**: AABB and shape-based
+- ✅ **Collision Response**: Realistic bouncing and separation
+- ✅ **Friction & Restitution**: Configurable material properties
+- ✅ **Multiple Body Types**: Static, kinematic, dynamic
+- ✅ **Zero Gravity Mode**: Space-like physics (current default)
+- 🔄 **Future**: Joints, constraints, forces
+
+## 🛠️ Development
+
+### Adding New Components
+
+1. Create `src/components/my_component.rs`
+2. Add to `src/components/mod.rs`
+3. Update `World` struct in `src/world.rs`
+
+### Adding New Systems  
+
+1. Create `src/systems/my_system.rs`
+2. Implement `System` trait
+3. Add to `src/systems/mod.rs`
+
+### Building Assets
+
+The engine includes a sample sprite atlas generator. You can also load your own PNG files:
 
 ```rust
-atlas.add_sprite("player".to_string(), 0, 0, 32, 32);
-atlas.add_sprite("enemy1".to_string(), 32, 0, 32, 32);
-// Add more sprites...
+// Load custom atlas
+let atlas = AssetsLoader::load_png("path/to/your/atlas.png")?;
+world.set_sprite_atlas(atlas);
 ```
 
-## Architecture
+## 📝 License
 
-```
-Entity (u32 ID)
-├── Components (HashMap storage)
-│   ├── Position { x: f32, y: f32 }
-│   ├── Velocity { x: f32, y: f32 }
-│   ├── Sprite { color: u32, size: usize }
-│   └── TextureSprite { atlas_name: String, scale: f32 }
-├── Systems (Scheduled execution)
-│   ├── InputSystem (handles keyboard input)
-│   ├── PhysicsSystem (updates positions, collision)
-│   └── RenderSystem (draws sprites to screen)
-└── World (manages all entities and components)
-```
+MIT OR Apache-2.0
 
-## Performance Features
+## 🤝 Contributing
 
-- **Frame-rate independent physics** with delta time
-- **Efficient sprite atlas** reduces texture memory usage
-- **Boundary collision detection** respects individual sprite sizes
-- **60 FPS target** with smooth rendering
-
-## Development
-
-### Branches
-- `master`: Stable production code
-- `dev`: Active development branch
-
-### Building
-```bash
-cargo build --release
-```
-
-### Dependencies
-- `minifb`: Cross-platform windowing and pixel buffer
-- `image`: PNG loading and image processing
-
-## License
-
-This project is open source and available under the MIT License.
+Contributions welcome! The modular architecture makes it easy to extend with new components, systems, and features.
 
 ---
 
-Built with ❤️ in Rust
+**Built with ❤️ and ⚡ Rust**

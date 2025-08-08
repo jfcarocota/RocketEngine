@@ -1,7 +1,17 @@
 [package]
-name = "RocketEngine"
+name = "rocket_engine"
 version = "0.1.0"
 edition = "2024"
+authors = ["Your Name <your.email@example.com>"]
+description = "A modular 2D game engine built with Rust and powered by Rapier2D physics"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jfcarocota/RocketEngine"
+keywords = ["game", "engine", "2d", "physics", "ecs"]
+categories = ["game-engines", "graphics"]
+
+[lib]
+name = "rocket_engine"
+path = "src/lib.rs"
 
 [dependencies]
 minifb = "0.27"
