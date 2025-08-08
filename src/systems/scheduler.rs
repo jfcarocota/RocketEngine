@@ -6,6 +6,34 @@ pub trait System {
     fn name(&self) -> &'static str;
 }
 
+/// Query-based system trait for systems that use borrow-checked component access
+pub trait QuerySystem {
+    /// Update the system using query-based component access
+    fn update_with_queries(&mut self, world: &mut World, dt: f32);
+    fn name(&self) -> &'static str;
+}
+
+/// Adapter to make QuerySystem work with the existing System trait
+pub struct QuerySystemAdapter<T: QuerySystem> {
+    inner: T,
+}
+
+impl<T: QuerySystem> QuerySystemAdapter<T> {
+    pub fn new(system: T) -> Self {
+        Self { inner: system }
+    }
+}
+
+impl<T: QuerySystem> System for QuerySystemAdapter<T> {
+    fn update(&mut self, world: &mut World, dt: f32) {
+        self.inner.update_with_queries(world, dt);
+    }
+    
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+}
+
 /// ECS Scheduler for managing update systems
 pub struct Scheduler {
     systems: Vec<Box<dyn System>>,
@@ -22,6 +50,11 @@ impl Scheduler {
     /// Add a system to the scheduler
     pub fn add_system(&mut self, system: Box<dyn System>) {
         self.systems.push(system);
+    }
+    
+    /// Add a query-based system to the scheduler
+    pub fn add_query_system<T: QuerySystem + 'static>(&mut self, system: T) {
+        self.systems.push(Box::new(QuerySystemAdapter::new(system)));
     }
 
     /// Update all systems in order

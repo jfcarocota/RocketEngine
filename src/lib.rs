@@ -35,11 +35,13 @@
 pub mod components;
 pub mod systems;
 pub mod world;
+pub mod scene;
 
 // Re-export commonly used types for convenience
 pub use components::*;
 pub use systems::*;
 pub use world::World;
+pub use scene::*;
 
 // Constants
 pub const DEFAULT_WIDTH: usize = 800;

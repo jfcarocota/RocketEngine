@@ -1,0 +1,80 @@
+Scene(
+    name: "Example Scene",
+    description: Some("A small example scene with a player, enemies, and a powerup"),
+    entities: [
+        // Player entity
+        EntityData(
+            name: Some("player"),
+            position: Some((100.0, 100.0)),
+            velocity: Some((0.0, 0.0)),
+            texture_sprite: Some(TextureSprite(
+                atlas_name: "player",
+                scale: 2.0,
+            )),
+            physics_body: Some(PhysicsBodyData(
+                size: 32.0,
+                body_type: Dynamic,
+            )),
+        ),
+        
+        // Enemy 1
+        EntityData(
+            name: Some("enemy_1"),
+            position: Some((300.0, 200.0)),
+            velocity: Some((20.0, 15.0)),
+            texture_sprite: Some(TextureSprite(
+                atlas_name: "enemy1",
+                scale: 1.5,
+            )),
+            physics_body: Some(PhysicsBodyData(
+                size: 24.0,
+                body_type: Dynamic,
+            )),
+        ),
+        
+        // Enemy 2
+        EntityData(
+            name: Some("enemy_2"),
+            position: Some((500.0, 400.0)),
+            velocity: Some((-30.0, -20.0)),
+            texture_sprite: Some(TextureSprite(
+                atlas_name: "enemy2",
+                scale: 1.0,
+            )),
+            physics_body: Some(PhysicsBodyData(
+                size: 16.0,
+                body_type: Dynamic,
+            )),
+        ),
+        
+        // Powerup
+        EntityData(
+            name: Some("powerup"),
+            position: Some((400.0, 300.0)),
+            velocity: Some((10.0, -10.0)),
+            texture_sprite: Some(TextureSprite(
+                atlas_name: "powerup",
+                scale: 1.0,
+            )),
+            physics_body: Some(PhysicsBodyData(
+                size: 16.0,
+                body_type: Dynamic,
+            )),
+        ),
+        
+        // Static obstacle/wall
+        EntityData(
+            name: Some("wall"),
+            position: Some((600.0, 300.0)),
+            velocity: None,
+            texture_sprite: Some(TextureSprite(
+                atlas_name: "enemy1", // Reusing sprite for visual
+                scale: 1.0,
+            )),
+            physics_body: Some(PhysicsBodyData(
+                size: 32.0,
+                body_type: Fixed,
+            )),
+        ),
+    ],
+)

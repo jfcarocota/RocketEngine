@@ -10,6 +10,43 @@ use rocket_engine::*;
 const WIDTH: usize = 800;
 const HEIGHT: usize = 600;
 
+/// Create a default player entity
+fn create_default_player(world: &mut World) -> Entity {
+    let player = world.create_entity();
+    world.add_position(player, Position::new(100.0, 100.0));
+    world.add_velocity(player, Velocity::zero());
+    world.add_texture_sprite(player, TextureSprite::with_scale("player", 2.0));
+    world.add_physics_body(player, Position::new(100.0, 100.0), 32.0, rapier2d::prelude::RigidBodyType::Dynamic);
+    player
+}
+
+/// Create default entities when no scene file is available
+fn create_default_entities(world: &mut World) -> Entity {
+    // Create the player entity with texture sprite and physics body
+    let player = create_default_player(world);
+
+    // Create additional entities with physics bodies
+    let enemy1 = world.create_entity();
+    world.add_position(enemy1, Position::new(300.0, 200.0));
+    world.add_velocity(enemy1, Velocity::new(20.0, 15.0));
+    world.add_texture_sprite(enemy1, TextureSprite::with_scale("enemy1", 1.5));
+    world.add_physics_body(enemy1, Position::new(300.0, 200.0), 24.0, rapier2d::prelude::RigidBodyType::Dynamic);
+
+    let enemy2 = world.create_entity();
+    world.add_position(enemy2, Position::new(500.0, 400.0));
+    world.add_velocity(enemy2, Velocity::new(-30.0, -20.0));
+    world.add_texture_sprite(enemy2, TextureSprite::with_scale("enemy2", 1.0));
+    world.add_physics_body(enemy2, Position::new(500.0, 400.0), 16.0, rapier2d::prelude::RigidBodyType::Dynamic);
+
+    let powerup = world.create_entity();
+    world.add_position(powerup, Position::new(400.0, 300.0));
+    world.add_velocity(powerup, Velocity::new(10.0, -10.0));
+    world.add_texture_sprite(powerup, TextureSprite::with_name("powerup"));
+    world.add_physics_body(powerup, Position::new(400.0, 300.0), 16.0, rapier2d::prelude::RigidBodyType::Dynamic);
+
+    player
+}
+
 fn main() {
     let mut window = Window::new(
         "RocketEngine - Powered by Rapier2D",
@@ -46,36 +83,40 @@ fn main() {
     
     world.set_sprite_atlas(atlas);
 
-    // Create the player entity with texture sprite and physics body
-    let player = world.create_entity();
-    world.add_position(player, Position::new(100.0, 100.0));
-    world.add_velocity(player, Velocity::zero());
-    world.add_texture_sprite(player, TextureSprite::with_scale("player", 2.0));
-    world.add_physics_body(player, Position::new(100.0, 100.0), 32.0, rapier2d::prelude::RigidBodyType::Dynamic);
-
-    // Create additional entities with physics bodies
-    let enemy1 = world.create_entity();
-    world.add_position(enemy1, Position::new(300.0, 200.0));
-    world.add_velocity(enemy1, Velocity::new(20.0, 15.0));
-    world.add_texture_sprite(enemy1, TextureSprite::with_scale("enemy1", 1.5));
-    world.add_physics_body(enemy1, Position::new(300.0, 200.0), 24.0, rapier2d::prelude::RigidBodyType::Dynamic);
-
-    let enemy2 = world.create_entity();
-    world.add_position(enemy2, Position::new(500.0, 400.0));
-    world.add_velocity(enemy2, Velocity::new(-30.0, -20.0));
-    world.add_texture_sprite(enemy2, TextureSprite::with_scale("enemy2", 1.0));
-    world.add_physics_body(enemy2, Position::new(500.0, 400.0), 16.0, rapier2d::prelude::RigidBodyType::Dynamic);
-
-    let powerup = world.create_entity();
-    world.add_position(powerup, Position::new(400.0, 300.0));
-    world.add_velocity(powerup, Velocity::new(10.0, -10.0));
-    world.add_texture_sprite(powerup, TextureSprite::with_name("powerup"));
-    world.add_physics_body(powerup, Position::new(400.0, 300.0), 16.0, rapier2d::prelude::RigidBodyType::Dynamic);
+    // Load entities from scene file, fall back to hardcoded entities if scene file doesn't exist
+    let player = {
+        // Try loading RON scene first, then JSON scene, then fall back to defaults
+        let scene_result = SceneLoader::load_from_ron("scenes/example_scene.ron")
+            .or_else(|_| SceneLoader::load_from_json("scenes/example_scene.json"));
+        
+        match scene_result {
+            Ok(scene) => {
+                println!("Loading scene from file...");
+                let entity_map = SceneLoader::spawn_scene(&scene, &mut world);
+                // Get the player entity ID from the scene
+                entity_map.get("player").copied().unwrap_or_else(|| {
+                    println!("Warning: No player entity found in scene, creating default player");
+                    create_default_player(&mut world)
+                })
+            }
+            Err(e) => {
+                println!("Could not load scene file: {}", e);
+                println!("Creating default entities...");
+                create_default_entities(&mut world)
+            }
+        }
+    };
 
     // Setup scheduler with update systems
     let mut scheduler = Scheduler::new();
     let mut input_system = InputSystem::new(player);
+    
+    // Add traditional systems
     scheduler.add_system(Box::new(PhysicsSystem::new()));
+    
+    // Add query-based systems for demonstration
+    scheduler.add_query_system(MovementSystem::new());
+    scheduler.add_query_system(QueryDemoSystem::new());
 
     // Timing for delta time calculation
     let mut last_time = Instant::now();
