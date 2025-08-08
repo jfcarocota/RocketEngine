@@ -75,7 +75,13 @@ fn main() {
     // Setup scheduler with update systems
     let mut scheduler = Scheduler::new();
     let mut input_system = InputSystem::new(player);
+    
+    // Add traditional systems
     scheduler.add_system(Box::new(PhysicsSystem::new()));
+    
+    // Add query-based systems for demonstration
+    scheduler.add_query_system(MovementSystem::new());
+    scheduler.add_query_system(QueryDemoSystem::new());
 
     // Timing for delta time calculation
     let mut last_time = Instant::now();
