@@ -483,53 +483,44 @@ impl CollisionSystem {
     
     fn separate_entities(&self, world: &mut World, entity_a: Entity, entity_b: Entity, 
                         horizontal_collision: bool, overlap_x: f32, overlap_y: f32) {
-        // Get velocities to determine which entity should move
-        let vel_a = world.get_velocity(entity_a).copied();
-        let vel_b = world.get_velocity(entity_b).copied();
-        
-        // Separate entities by moving them apart
-        let separation = if horizontal_collision { overlap_x } else { overlap_y };
-        let half_sep = separation / 2.0;
-        
-        // Move entities apart based on their velocities
-        // We need to handle the borrowing carefully to avoid double mutable borrow
+        // Get current positions
         let pos_a = world.positions.get(&entity_a).copied();
         let pos_b = world.positions.get(&entity_b).copied();
         
         if let (Some(mut pos_a), Some(mut pos_b)) = (pos_a, pos_b) {
+            // Calculate separation distance
+            let separation = if horizontal_collision { overlap_x } else { overlap_y };
+            let half_sep = separation / 2.0 + 1.0; // Add small buffer to prevent re-collision
+            
             if horizontal_collision {
-                // Horizontal separation
-                if let Some(vel_a) = vel_a {
-                    if vel_a.x > 0.0 {
-                        pos_a.x -= half_sep; // Entity A was moving right, push it left
-                    } else if vel_a.x < 0.0 {
-                        pos_a.x += half_sep; // Entity A was moving left, push it right
-                    }
-                }
-                if let Some(vel_b) = vel_b {
-                    if vel_b.x > 0.0 {
-                        pos_b.x -= half_sep; // Entity B was moving right, push it left
-                    } else if vel_b.x < 0.0 {
-                        pos_b.x += half_sep; // Entity B was moving left, push it right
-                    }
+                // Determine which entity is on the left/right based on their positions
+                if pos_a.x < pos_b.x {
+                    // Entity A is on the left, Entity B is on the right
+                    pos_a.x -= half_sep;
+                    pos_b.x += half_sep;
+                } else {
+                    // Entity A is on the right, Entity B is on the left
+                    pos_a.x += half_sep;
+                    pos_b.x -= half_sep;
                 }
             } else {
-                // Vertical separation
-                if let Some(vel_a) = vel_a {
-                    if vel_a.y > 0.0 {
-                        pos_a.y -= half_sep; // Entity A was moving down, push it up
-                    } else if vel_a.y < 0.0 {
-                        pos_a.y += half_sep; // Entity A was moving up, push it down
-                    }
-                }
-                if let Some(vel_b) = vel_b {
-                    if vel_b.y > 0.0 {
-                        pos_b.y -= half_sep; // Entity B was moving down, push it up
-                    } else if vel_b.y < 0.0 {
-                        pos_b.y += half_sep; // Entity B was moving up, push it down
-                    }
+                // Determine which entity is on the top/bottom based on their positions
+                if pos_a.y < pos_b.y {
+                    // Entity A is above, Entity B is below
+                    pos_a.y -= half_sep;
+                    pos_b.y += half_sep;
+                } else {
+                    // Entity A is below, Entity B is above
+                    pos_a.y += half_sep;
+                    pos_b.y -= half_sep;
                 }
             }
+            
+            // Ensure entities stay within screen bounds
+            pos_a.x = pos_a.x.max(0.0).min((WIDTH as f32) - 32.0);
+            pos_a.y = pos_a.y.max(0.0).min((HEIGHT as f32) - 32.0);
+            pos_b.x = pos_b.x.max(0.0).min((WIDTH as f32) - 32.0);
+            pos_b.y = pos_b.y.max(0.0).min((HEIGHT as f32) - 32.0);
             
             // Update positions back to the world
             world.positions.insert(entity_a, pos_a);
